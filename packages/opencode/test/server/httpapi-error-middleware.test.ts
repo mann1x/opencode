@@ -1,7 +1,7 @@
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { describe, expect } from "bun:test"
-import { ConfigError } from "../../src/config/error"
+import { ConfigErrorV1 } from "@opencode-ai/core/v1/config/error"
 import { Effect, Layer } from "effect"
 import { HttpClient, HttpClientRequest, HttpRouter } from "effect/unstable/http"
 import { errorLayer } from "../../src/server/routes/instance/httpapi/middleware/error"
@@ -53,9 +53,9 @@ describe("HttpApi error middleware", () => {
     }),
   )
 
-  it.live("preserves config defects as client-visible bad requests", () =>
+  it.live("returns invalid config defects as structured client errors", () =>
     Effect.gen(function* () {
-      const configError = new ConfigError.InvalidError({
+      const configError = new ConfigErrorV1.InvalidError({
         path: "/tmp/opencode.json",
         issues: [{ message: "Expected object", path: ["provider", "anthropic", "options"] }],
       })
@@ -68,9 +68,18 @@ describe("HttpApi error middleware", () => {
 
       const response = yield* HttpClientRequest.get("/config-error").pipe(HttpClient.execute)
       const body = yield* response.json
+      const serialized = JSON.stringify(body)
 
       expect(response.status).toBe(400)
-      expect(JSON.stringify(body)).toBe(JSON.stringify(configError.toObject()))
+      expect(body).toMatchObject({
+        name: "ConfigInvalidError",
+        data: {
+          path: "/tmp/opencode.json",
+          issues: [{ message: "Expected object", path: ["provider", "anthropic", "options"] }],
+        },
+      })
+      expect(serialized).toContain("/tmp/opencode.json")
+      expect(serialized).toContain("anthropic")
     }),
   )
 

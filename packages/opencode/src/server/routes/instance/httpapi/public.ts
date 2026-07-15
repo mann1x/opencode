@@ -66,6 +66,7 @@ const QueryParameterSchemas: Record<string, OpenApiSchema> = {
   "GET /session roots": QueryBooleanOpenApi,
   "GET /session limit": { type: "number" },
   "GET /session/{sessionID}/message limit": { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+  "GET /vcs/diff context": { type: "integer", minimum: 0 },
   "GET /api/session limit": { type: "number" },
   "GET /api/session start": { type: "number" },
   "GET /api/session roots": QueryBooleanOpenApi,
@@ -109,7 +110,7 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
       if (operation.requestBody) {
         // The legacy OpenAPI surface never marked request bodies as required.
         // Keep that SDK surface stable while the HttpApi spec is tightened.
-        delete operation.requestBody.required
+        if (!isV2Api) delete operation.requestBody.required
         const body = operation.requestBody.content?.["application/json"]
         if (body?.schema) body.schema = stripOptionalNull(structuredClone(body.schema))
         if (path === "/experimental/workspace" && method === "post") {
@@ -151,7 +152,7 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
         normalizeLegacyErrorResponses(operation)
       }
       normalizeLegacyOperation(operation, path, method)
-      if ((path === "/event" || path === "/global/event") && method === "get") {
+      if ((path === "/event" || path === "/global/event" || path === "/api/event") && method === "get") {
         // HttpApi has no first-class SSE response schema, and these handlers are
         // raw/streaming routes. Document the actual wire protocol explicitly.
         operation.responses!["200"] = {
@@ -161,7 +162,9 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
               schema:
                 path === "/event"
                   ? { $ref: "#/components/schemas/Event" }
-                  : { $ref: "#/components/schemas/GlobalEvent" },
+                  : path === "/global/event"
+                    ? { $ref: "#/components/schemas/GlobalEvent" }
+                    : { $ref: "#/components/schemas/V2Event" },
             },
           },
         }
@@ -371,7 +374,6 @@ function referencesComponent(input: unknown, name: string): boolean {
 
 function normalizeLegacyOperation(operation: OpenApiOperation, path: string, method: string) {
   if (path === "/experimental/console/switch" && method === "post") delete operation.responses?.["400"]
-  if (path === "/pty/{ptyID}" && method === "put") delete operation.responses?.["404"]
   if ((path !== "/session/{sessionID}/message" && path !== "/session/{sessionID}/command") || method !== "post") return
   const response = operation.responses?.["200"]?.content?.["application/json"]
   if (!response) return
